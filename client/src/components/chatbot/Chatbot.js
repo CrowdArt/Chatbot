@@ -40,6 +40,7 @@ class Chatbot extends Component {
 
          if (res.data.fulfillmentMessages ) {
             for (let i = 0; i < res.data.fulfillmentMessages.length; i++) {
+                console.log(JSON.stringify(msg));
                 msg = res.data.fulfillmentMessages[i];
                 says = {
                     speaks: 'bot',
@@ -79,7 +80,11 @@ class Chatbot extends Component {
    renderMessages(stateMessages) {
        if (stateMessages) {
            return stateMessages.map((message, i) => {
-               return <Message key={i} speaks={message.speaks} text={message.msg.text.text} />;
+               if (message.msg && message.msg.text && message.msg.text.text) {
+                return <Message key={i} speaks={message.speaks} text={message.msg.text.text} />;
+               } else {
+
+               }
            });
        } else {
            return null;
