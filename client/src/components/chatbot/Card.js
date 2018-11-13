@@ -1,5 +1,6 @@
 import React from 'react';
- const Card = (props) => {
+ 
+const Card = (props) => {
     return (
         <div  style={{ height: 270, paddingRight:30, float: 'left'}}>
             <div className="card">
@@ -18,4 +19,5 @@ import React from 'react';
         </div>
     );
 };
- export default Card;
+
+export default Card;
