@@ -1,10 +1,15 @@
 import React, { Component } from 'react';
 import axios from 'axios/index';
+import { withRouter } from 'react-router-dom';
 import Cookies from 'universal-cookie';
 import { v4 as uuid } from 'uuid';
 
+
 import Message from './Message';
 import Card from './Card';
+import QuickReplies from './QuickReplies';
+
+global.Promise = require('bluebird');
 
 const cookies = new Cookies();
 
@@ -13,20 +18,28 @@ class Chatbot extends Component {
     talkInput;
 
     constructor(props) {
-        super (props);
+        super(props);
+        this.hide = this.hide.bind(this);
+        this.show = this.show.bind(this);
         // This binding is necessary to make `this` work in the callback
         this._handleInputKeyPress = this._handleInputKeyPress.bind(this);
+        this._handleQuickRepliesPayload = this._handleQuickRepliesPayload(this);
         this.state = {
-            messages: []
+            messages: [],
+            showBot: true,
+            shopWelcomeSent: false,
+            welcomeSent: false,
+            clientToken: false,
+            regenerateToken: 0
         }
 
         if (cookies.get('userID') === undefined) {
             cookies.set('userID', uuid(), { path: '/' });    
         }
-        console.log(cookies.get('userID'));
+        //console.log(cookies.get('userID'));
     }
 
-    async df_text_query (queryText) {
+    async df_text_query(queryText) {
         let msg;
         let says = {
             speaks: 'user',
@@ -36,21 +49,10 @@ class Chatbot extends Component {
                 }
             }
         }
-        this.setState({ messages: [...this.state.messages, says]});
-        const res = await axios.post('/api/df_text_query',  {text: queryText, userID: cookies.get('userID')});
+        
+        this.setState ({ messages: [...this.state.messages, says]});
 
-         if (res.data.fulfillmentMessages ) {
-            for (let i = 0; i < res.data.fulfillmentMessages.length; i++) {
-                
-                msg = res.data.fulfillmentMessages[i];
-                console.log(JSON.stringify(msg));
-                says = {
-                    speaks: 'bot',
-                    msg: msg
-                }
-                this.setState({ messages: [...this.state.messages, says]});
-            }
-        }
+        
     };
 
     async df_event_query(eventName) {
@@ -62,25 +64,71 @@ class Chatbot extends Component {
                says = {
                    speaks: 'bot',
                    msg: msg
-               }
+                }
                 this.setState({ messages: [...this.state.messages, says]});
            }
        }
    };
 
-   componentDidMount() {
-       this.df_event_query('Welcome');
+   //adding pause between messages
+   resolveAfterXSeconds(x) {
+        return new Promise(resolve => {
+            setTimeout(()=>{
+                resolve(x)
+            }, x * 1000)
+        })
    }
+   
+   //url path name when the component is loaded
+    async componentDidMount() {
+        this.df_event_query('Welcome');
+
+        if (window.location.pathname === './shop' && !this.state.shopWelcomeSent) {
+            await this.resolveAfterXSeconds(2);
+           this.df_event_query('WELCOME_SHOP');
+           this.setState({shopWelcomeSent: true, showBot: true});
+        }
+
+        this.props.history.listen(() => {
+            console.log('listening');
+            if (this.props.history.location.pathname === './shop' && !this.state.shopWelcomeSent) {
+                this.df_event_query('WELCOME_SHOP');
+                this.setState({shopWelcomeSent: true, showBot: true});
+            }
+        })
+    }
 
    componentDidUpdate() {   
-        this.scrollToBottom();
-        if ( this.talkInput ) {
+        this.messagesEnd.scrollIntoView({ behavior: "smooth" });
+        if (this.talkInput) {
             this.talkInput.focus();
         }
    }
 
+   show() {
+       this.setState({ showBot: true });
+   }
+
+   hide() {
+    this.setState({ showBot: false });
+   }
+
+   _handleQuickRepliesPayload(payload, text) {
+       switch (payload) {
+            case 'recommended_yes':
+                this.df_event_query('SHOW_RECOMMENDATIONS');
+            break;
+            case 'training_masterclass':
+                this.df_event_query('MASTERCLASS');
+            break;
+            default:    
+                this.df_text_query(text);
+            break;
+       }
+   }
+
    renderCards(cards) {
-       return cards.map((card, i) => <Card key={i} payload={card.structValue} />)
+       return cards.map((card, i) => <Card key={i} payload={card} />)
    }
 
    renderOneMessage(message, i) {
@@ -102,6 +150,17 @@ class Chatbot extends Component {
                         </div>
                     </div>
                 </div>
+             } else if (message.msg &&
+                message.msg.payload &&
+                message.msg.payload.fields &&
+                message.msg.payload.fields.quick_replies
+            ) {
+                return <QuickReplies
+                    text={message.msg.payload.fields.text ? message.msg.payload.fields.text : null}
+                    key={i} r
+                    eplyClick={this._handleQuickReplyPayload}
+                    speaks={message.speaks}
+                    payload={message.msg.payload.fields.quick_replies.listValue.values}/>;
         }
     }
 
@@ -123,26 +182,46 @@ class Chatbot extends Component {
     }
 
     render () {
-        return (
-            <div style = {{ height: 500, width: 400, position: 'absolute', bottom: 0, right: 5, border: '1px solid lightgrey' }}>
-                <nav>
-                    <div className="new-wrapper">
-                        <a className="brand-logo">Chatbot</a>
+        if (this.state.showBot) {
+            return (
+                <div style = {{ height: 500, width: 400, position: 'absolute', bottom: 0, right: 5, border: '1px solid lightgrey' }}>
+                    <nav>
+                        <div className="new-wrapper">
+                            <a className="brand-logo">Chatbot</a>
+                            <ul id="nav-mobile" className="right hide-on-med-and-down">
+                                <li><a onClick={this.hide}>Close</a></li>
+                            </ul>
+                        </div>
+                    </nav>
+                    
+                    <div id="chatbot" style={{ height: 388, width: '100%', overflow: 'auto' }}>
+                        {this.renderMessages(this.state.messages)}
+                        <div ref = {(el) => { this.messagesEnd = el; }} 
+                            style={{ float: 'left', clear: "both" }}>
+                        </div>            
                     </div>
-                </nav>
-                
-                <div id="chatbot" style={{ height: 388, width: '100%', overflow: 'auto' }}>
-                    {this.renderMessages(this.state.messages)}
+                    <div className="col s12">
+                        <input style={{margin: 0, paddingLeft: '1%', paddingRight: '1%', width: '98%'}} placeholder="Type a message" type="text" ref={(input) => { this.talkInput = input; }} onKeyPress={this._handleInputKeyPress} autoFocus />
+                    </div>
+                </div>
+            )
+        } else {
+            return (
+                <div style = {{ height: 40, width: 400, position: 'absolute', bottom: 0, right: 5, border: '1px solid lightgrey' }}>
+                    <nav>
+                        <div className="new-wrapper">
+                            <a className="brand-logo">Chatbot</a>
+                            <ul id="nav-mobile" className="right hide-on-med-and-down">
+                                <li><a onClick={this.show}>Show</a></li>
+                            </ul>
+                        </div>
+                    </nav>
                     <div ref = {(el) => { this.messagesEnd = el; }} 
                         style={{ float: 'left', clear: "both" }}>
-
-                    </div>            
+                    </div>
                 </div>
-                <div className="col s12">
-                    <input style={{margin: 0, paddingLeft: '1%', paddingRight: '1%', width: '98%'}} placeholder="Type a message" type="text" ref={(input) => { this.talkInput = input; }} onKeyPress={this._handleInputKeyPress} autoFocus />
-                </div>
-            </div>
-        )
+            )
+        }
     }
 
     scrollToBottom = () => {
@@ -150,4 +229,4 @@ class Chatbot extends Component {
     }
 }
 
-export default Chatbot;
+export default withRouter (Chatbot);
